@@ -6,6 +6,8 @@ from matplotlib import pyplot as plt
 import os
 
 # Get input from user
+print("Meta-Learning with MAML for Regression")
+print("-" * 50)
 num_epochs_input = int(input("Enter the number of epochs: "))
 num_epochs = num_epochs_input + 1
 
