@@ -23,6 +23,7 @@ importlib_metadata==8.0.0
 importlib_resources==6.4.0
 jax==0.4.13
 Jinja2==3.1.4
+joblib==1.4.2
 keras==2.12.0
 kiwisolver==1.4.5
 libclang==18.1.1
@@ -59,6 +60,7 @@ pytz==2024.1
 requests==2.32.3
 requests-oauthlib==2.0.0
 rsa==4.9
+scikit-learn==1.3.2
 scipy==1.10.1
 six==1.16.0
 sympy==1.12.1
@@ -68,6 +70,7 @@ tensorflow==2.12.0
 tensorflow-estimator==2.12.0
 tensorflow-io-gcs-filesystem==0.34.0
 termcolor==2.4.0
+threadpoolctl==3.5.0
 torch==2.3.1
 triton==2.3.1
 typing_extensions==4.12.2

@@ -4,38 +4,27 @@ import torch.nn.functional as F
 from torch.utils.data import DataLoader, Dataset
 from matplotlib import pyplot as plt
 import os
+from sklearn.model_selection import ParameterGrid
 
-# Get input from user
-print("Meta-Learning with MAML for Regression")
-print("-" * 50)
-num_epochs_input = int(input("Enter the number of epochs: "))
-num_epochs = num_epochs_input + 1
+# 하이퍼파라미터 설정
+param_grid = {
+    'batch_size': [32, 64, 128, 256],
+    'learning_rate': [1e-4, 1e-3, 1e-2],
+    'num_epochs': [1000, 2000]
+}
 
-batch_size_options = [64, 128, 256]
-learning_rate_options = [1e-2, 1e-3, 1e-4]
-
-def select_option(options, option_name):
-    print(f"Select {option_name}:")
-    for i, option in enumerate(options, 1):
-        print(f"{i}: {option}")
-    choice = input(f"Enter the number corresponding to your choice or 'a' for all options: ").strip().lower()
-    if choice == 'a':
-        return options
-    else:
-        return [options[int(choice) - 1]]
-
-batch_size_choices = select_option(batch_size_options, "batch size")
-learning_rate_choices = select_option(learning_rate_options, "learning rate")
+grid = list(ParameterGrid(param_grid))
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 print("-" * 50)
 print(device)
 print("-" * 50)
 
-# Base directory for saving plots
-base_dir = "output_MAML-regression"
+# 기본 디렉토리 설정
+base_dir = "output_MAML_regression"
 os.makedirs(base_dir, exist_ok=True)
 
+# TensorData 클래스 정의
 class TensorData(Dataset):
 
     def __init__(self, x_data, y_data):
@@ -49,6 +38,7 @@ class TensorData(Dataset):
     def __len__(self):
         return self.len
 
+# SinusoidalFunction 클래스 정의
 class SinusoidalFunction:
     def __init__(self, x_range=5, k=5, num_tasks=4):
         self.x_range = x_range
@@ -82,11 +72,12 @@ class SinusoidalFunction:
         x = torch.linspace(-self.x_range, self.x_range, 200)
         y = a * torch.sin(x + b)
         return sup_x, sup_y, que_x, que_y, x, y
-    
+
 k = 5
 num_tasks = 2000
 sine = SinusoidalFunction(k=k, num_tasks=num_tasks)
 
+# Regressor 클래스 정의
 class Regressor(nn.Module):
     def __init__(self):
         super().__init__()
@@ -105,7 +96,8 @@ class Regressor(nn.Module):
         x = F.relu(F.linear(x, weights[2], weights[3]))
         x = F.linear(x, weights[4], weights[5])
         return x    
-    
+
+# MAML 클래스 정의
 class MAML:
 
     def __init__(self, trainloader, k, alpha, beta=1e-3):
@@ -138,6 +130,7 @@ class MAML:
         return inner_loss
 
     def meta_train(self, num_epochs):
+        print("-" * 50)
         n = len(self.trainloader)
         loss_list = []
 
@@ -160,11 +153,12 @@ class MAML:
         print("-" * 50)
         return loss_list
 
-def run_experiment(batch_size, learning_rate):
+def run_experiment(batch_size, learning_rate, num_epochs_input):
+    num_epochs = num_epochs_input + 1
     trainloader = sine.meta_train_data(batch_size)
 
     # Dynamic setting value
-    setting = f"epochs_{num_epochs}_batch_{batch_size}_learningRate_{learning_rate}"
+    setting = f"epochs_{num_epochs_input}_batch_{batch_size}_learningRate_{learning_rate}"
     setting_dir = os.path.join(base_dir, setting)
     os.makedirs(setting_dir, exist_ok=True)
 
@@ -252,6 +246,9 @@ def run_experiment(batch_size, learning_rate):
         elif i == num_epochs - 1:
             inference(sup_x, sup_y, x, y, net, f"Baseline Model Inference at Epoch {num_epochs_input}", os.path.join(setting_dir, f"baseline_inference_epoch_{num_epochs_input}_epochs_{num_epochs_input}_batch_{batch_size}_learningRate_{learning_rate}.png"))
 
-for batch_size in batch_size_choices:
-    for learning_rate in learning_rate_choices:
-        run_experiment(batch_size, learning_rate)
+# 실험 실행
+for params in grid:
+    batch_size = params['batch_size']
+    learning_rate = params['learning_rate']
+    num_epochs_input = params['num_epochs']
+    run_experiment(batch_size, learning_rate, num_epochs_input)
