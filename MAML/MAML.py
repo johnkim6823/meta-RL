@@ -93,4 +93,17 @@ model = MAML()
 model.train()
 print("Training Completed!")
 
-# Expected output:
+# Testing the model
+XTest, YTest = sample_points(10)
+a = np.matmul(XTest, model.theta)
+YPred = model.sigmoid(a)
+print("Predictions: ",YPred.T)
+print("Actual: ",YTest.T)
+print("Model Parameter Theta\n",model.theta)
+print("Testing Completed!")
+
+# Visualizing the model
+import matplotlib.pyplot as plt
+plt.plot(model.theta)
+plt.title("Model Parameter Theta")
+plt.show()
