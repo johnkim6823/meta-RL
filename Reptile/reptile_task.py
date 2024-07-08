@@ -227,12 +227,11 @@ plt.ylabel('Loss')
 plt.title('Loss over Iterations')
 plt.savefig(os.path.join(training_dir, "loss_history.png"))
 plt.close()
-
 #-------------------TESTING SECTION-------------------
 print("Testing the model on new tasks.......")
 
 # Function to test the model on new tasks
-def test_model(gen_task, num_iterations=5000, test_task_name="New Task"):
+def test_model(gen_task, num_iterations=100, test_task_name="New Task"):
     f_test = gen_task()
     x_test = np.linspace(-5, 5, 50)[:, None]
     y_test = f_test(x_test)
@@ -252,18 +251,19 @@ def test_model(gen_task, num_iterations=5000, test_task_name="New Task"):
     
     for i in range(num_iterations):
         train_on_batch(x_test, y_test)
+        current_prediction = predict(x_test)
+        test_loss = np.square(current_prediction - y_test).mean()
+        test_losses.append(test_loss)
+        print(f"Iteration {i + 1}, Test Loss: {test_loss:.3f}")
+
         if (i + 1) % (num_iterations // 5) == 0 or i == num_iterations - 1:
-            current_prediction = predict(x_test)
             plt.plot(x_test, current_prediction, label=f"Prediction after {i + 1} iterations")
             plt.pause(0.01)
-            test_loss = np.square(current_prediction - y_test).mean()
-            test_losses.append(test_loss)
-            print(f"Iteration {i + 1}, Test Loss: {test_loss:.3f}")
-            
-            if test_loss < best_loss:
-                best_loss = test_loss
-                best_iteration = i + 1
-                best_prediction = current_prediction
+
+        if test_loss < best_loss:
+            best_loss = test_loss
+            best_iteration = i + 1
+            best_prediction = current_prediction
     
     plt.xlabel('x')
     plt.ylabel('y')
