@@ -1,5 +1,5 @@
 # meta-RL
-## Make vitual env
+## Make virtual env
 ```
 virtualenv [venv_name]
 ```

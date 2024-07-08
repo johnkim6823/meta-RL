@@ -232,7 +232,7 @@ plt.close()
 print("Testing the model on new tasks.......")
 
 # Function to test the model on new tasks
-def test_model(gen_task, num_iterations=10, test_task_name="New Task"):
+def test_model(gen_task, num_iterations=5000, test_task_name="New Task"):
     f_test = gen_task()
     x_test = np.linspace(-5, 5, 50)[:, None]
     y_test = f_test(x_test)
