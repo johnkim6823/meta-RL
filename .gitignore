@@ -3,3 +3,10 @@ venv
 
 #output
 output*
+
+#backup
+*.bak
+
+#model
+*.pth
+

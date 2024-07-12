@@ -7,7 +7,9 @@ from torch import nn, autograd as ag
 import matplotlib.pyplot as plt
 from matplotlib.ticker import FuncFormatter
 from copy import deepcopy
-from tasks import tasks, task_conditions, gen_new_task
+from tasks import *
+from model_testing import test_model
+from datetime import datetime
 
 # Ensure the directories exist and clear them if they already exist
 output_dir = "output_reptile_task"
@@ -72,6 +74,9 @@ xtest_plot = np.linspace(-5, 5, 100)[:, None]
 # List to store loss values
 loss_history = []
 
+# Dictionary to store task frequency
+task_frequency = {task_name: 0 for task_name in tasks.keys()}
+
 # Start measuring training time
 start_training_time = time.time()
 
@@ -79,6 +84,7 @@ start_training_time = time.time()
 for iteration in range(niterations):
     # Randomly select an application (task)
     task_name = rng.choice(list(tasks.keys()))
+    task_frequency[task_name] += 1
     gen_task = tasks[task_name]
     conditions = task_conditions[task_name]
 
@@ -87,8 +93,9 @@ for iteration in range(niterations):
         print("-----------------------------")
         print(f"Iteration {iteration + 1}")
         print(f"Training on task: {task_name}")
-        #print(f"Task conditions: {conditions}")
-
+        print(f"Task Frequency Distribution (up to iteration {iteration + 1}):")
+        for task, freq in task_frequency.items():
+            print(f"{task}: {freq} times")
 
     weights_before = deepcopy(model.state_dict())
     # Generate task
@@ -134,8 +141,8 @@ for iteration in range(niterations):
             plt.savefig(os.path.join(training_dir, f"plot_iteration_{iteration + 1}.png"))
         
         model.load_state_dict(weights_before) # restore from snapshot
-        #print(f"-----------------------------")
-        #print(f"iteration               {iteration + 1}")
+        print(f"-----------------------------")
+        print(f"iteration               {iteration + 1}")
         print(f"loss on plotted curve   {lossval:.3f}") # would be better to average loss over a set of examples, but this is optimized for brevity
 
     # Save loss value
@@ -145,101 +152,45 @@ for iteration in range(niterations):
 end_training_time = time.time()
 training_time = end_training_time - start_training_time
 
-# Plot the loss history
+# Plot the loss history with detailed view
 plt.figure()
 plt.plot(loss_history)
 plt.xlabel('Iteration')
 plt.ylabel('Loss')
-plt.title('Loss over Iterations')
+plt.title('Loss over Iterations (Full View)')
 plt.ylim(bottom=0)  # Set y-axis to start at 0 for better readability
 plt.gca().yaxis.set_major_formatter(FuncFormatter(lambda y, _: f'{y:.2f}'))
-plt.savefig(os.path.join(training_dir, "loss_history.png"))
+plt.savefig(os.path.join(training_dir, "loss_history_full.png"))
 plt.close()
+
+# Plot the loss history with zoomed-in view
+plt.figure()
+plt.plot(loss_history)
+plt.xlabel('Iteration')
+plt.ylabel('Loss')
+plt.title('Loss over Iterations (Zoomed View)')
+plt.ylim(0, max(loss_history) * 0.1)  # Zoom into the first 10% of the maximum loss
+plt.gca().yaxis.set_major_formatter(FuncFormatter(lambda y, _: f'{y:.4f}'))
+plt.savefig(os.path.join(training_dir, "loss_history_zoomed.png"))
+plt.close()
+
+# Save the trained model
+torch.save(model.state_dict(), "reptile_model.pth")
 
 #-------------------TESTING SECTION-------------------
 print(f"-----------------------------")
 print("Testing the model on new tasks.......")
 
-# Function to test the model on new tasks with early stopping
-def test_model(gen_task, num_iterations=1000, test_task_name="New Task", patience=10, min_loss_diff=0.01):
-    f_test = gen_task()
-    x_test = np.linspace(-5, 5, 50)[:, None]
-    y_test = f_test(x_test)
-    
-    # List to store test losses
-    test_losses = []
-
-    # Print test metadata
-    print(f"Testing on task: {test_task_name}")
-    print(f"Number of iterations: {num_iterations}")
-    print(f"Patience: {patience}")
-    print(f"Minimum loss difference for early stopping: {min_loss_diff}")
-    print(f"-----------------------------")
-
-    # Initial predictions
-    plt.figure()
-    plt.plot(x_test, y_test, label="True Function", color='g')
-    plt.plot(x_test, predict(x_test), label="Initial Prediction", color='r')
-    
-    best_iteration = 0
-    best_loss = float('inf')
-    best_prediction = None
-    no_improvement_count = 0
-    
-    for i in range(num_iterations):
-        train_on_batch(x_test, y_test)
-        current_prediction = predict(x_test)
-        test_loss = np.square(current_prediction - y_test).mean()
-        test_losses.append(test_loss)
-        print(f"Iteration {i + 1}, Test Loss: {test_loss:.3f}")
-
-        if (i + 1) % (num_iterations // 5) == 0 or i == num_iterations - 1:
-            plt.plot(x_test, current_prediction, label=f"Prediction after {i + 1} iterations")
-
-        if test_loss < best_loss:
-            if best_loss - test_loss < min_loss_diff:
-                print(f"Stopping early at iteration {i + 1} due to minimal loss improvement.")
-                print(f"-----------------------------")
-                break
-            best_loss = test_loss
-            best_iteration = i + 1
-            best_prediction = current_prediction
-            no_improvement_count = 0  # Reset the counter if improvement is found
-        else:
-            no_improvement_count += 1  # Increment the counter if no improvement
-        
-        if no_improvement_count >= patience:
-            print(f"Early stopping at iteration {i + 1} with best iteration {best_iteration}")
-            print(f"-----------------------------")
-            break
-    
-    plt.xlabel('x')
-    plt.ylabel('y')
-    plt.title(f'Model Predictions on {test_task_name}')
-    plt.legend(loc="lower right")
-    plt.gca().yaxis.set_major_formatter(FuncFormatter(lambda y, _: f'{y:.2f}'))
-    plt.savefig(os.path.join(test_dir, f"test_{test_task_name.replace(' ', '_')}.png"))
-    plt.close()
-    
-    # Plot best prediction
-    plt.figure()
-    plt.plot(x_test, y_test, label="True Function", color='g')
-    plt.plot(x_test, best_prediction, label=f"Best Prediction after {best_iteration} iterations", color='b')
-    plt.xlabel('x')
-    plt.ylabel('y')
-    plt.title(f'Best Model Prediction on {test_task_name}')
-    plt.legend(loc="lower right")
-    plt.gca().yaxis.set_major_formatter(FuncFormatter(lambda y, _: f'{y:.2f}'))
-    plt.savefig(os.path.join(test_dir, f"best_prediction_{test_task_name.replace(' ', '_')}.png"))
-    plt.close()
-    
-    return test_losses
+# Create a new directory with the current date and time for saving test results
+current_time = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+test_output_dir = os.path.join(test_dir, current_time)
+os.makedirs(test_output_dir)
 
 # Start measuring testing time
 start_testing_time = time.time()
 
 # Test the model on new tasks with early stopping
-new_task_losses = test_model(gen_new_task, test_task_name="New Task Example", patience=10, min_loss_diff=0.001)
+new_task_losses = test_model(model, gen_new_task, test_output_dir, test_task_name="New Task Example", patience=10, min_loss_diff=0.001)
 
 # End measuring testing time
 end_testing_time = time.time()
@@ -253,7 +204,7 @@ plt.ylabel('Loss')
 plt.title('Test Loss over Iterations on New Environment')
 plt.xticks(range(1, len(new_task_losses) + 1))
 plt.gca().yaxis.set_major_formatter(FuncFormatter(lambda y, _: f'{y:.2f}'))
-plt.savefig(os.path.join(test_dir, "test_loss_history.png"))
+plt.savefig(os.path.join(test_output_dir, "test_loss_history.png"))
 plt.close()
 
 print("Training and Testing Completed!")
@@ -261,14 +212,3 @@ print(f"Results saved in {output_dir} directory.")
 print(f"Total Training Time: {training_time:.2f} seconds")
 print(f"Total Testing Time: {testing_time:.2f} seconds")
 print(f"-----------------------------")
-
-# Plot the loss history
-plt.figure()
-plt.plot(loss_history)
-plt.xlabel('Iteration')
-plt.ylabel('Loss')
-plt.title('Loss over Iterations')
-plt.ylim(bottom=0)  # Set y-axis to start at 0 for better readability
-plt.gca().yaxis.set_major_formatter(FuncFormatter(lambda y, _: f'{y:.2f}'))
-plt.savefig(os.path.join(training_dir, "loss_history.png"))
-plt.close()

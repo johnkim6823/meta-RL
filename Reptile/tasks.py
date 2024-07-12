@@ -1,7 +1,9 @@
 import numpy as np
 
-rng = np.random.RandomState(0)  # Ensure reproducibility with a fixed seed
+# Ensure reproducibility with a fixed seed
+rng = np.random.RandomState(0)
 
+# Define task generation functions
 def gen_coco_task():
     phase = rng.uniform(low=0, high=2*np.pi)
     ampl = rng.uniform(0.1, 5)
@@ -38,6 +40,7 @@ def gen_new_task():
     f_randomsine = lambda x: np.sin(x + phase) * ampl
     return f_randomsine
 
+# Dictionary of tasks
 tasks = {
     "COCO": gen_coco_task,
     "Google Speech Commands": gen_speech_commands_task,
@@ -46,6 +49,7 @@ tasks = {
     "CIFAR": gen_cifar_task,
 }
 
+# Task conditions
 task_conditions = {
     "COCO": {
         "usage_percentage": 20,

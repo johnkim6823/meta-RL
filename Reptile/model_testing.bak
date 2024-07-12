@@ -1,0 +1,160 @@
+import os
+import torch
+import time
+import numpy as np
+import matplotlib.pyplot as plt
+from matplotlib.ticker import FuncFormatter
+from torch import nn, autograd as ag
+from tasks import tasks, gen_new_task, task_conditions
+from datetime import datetime
+
+# Define directories
+output_dir = "output_reptile_task"
+test_dir = os.path.join(output_dir, "test")
+
+# Create a unique directory name with current date and time
+timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+unique_test_dir = os.path.join(test_dir, timestamp)
+
+# Function to create directory if it doesn't exist
+def create_directory(dir_path):
+    if not os.path.exists(dir_path):
+        os.makedirs(dir_path)
+
+create_directory(unique_test_dir)
+
+# Define model structure
+model = nn.Sequential(
+    nn.Linear(1, 64),
+    nn.Tanh(),
+    nn.Linear(64, 64),
+    nn.Tanh(),
+    nn.Linear(64, 1),
+)
+
+# Load the saved model
+model_path = os.path.join(output_dir, "training", "reptile_model.pth")
+model.load_state_dict(torch.load(model_path))
+
+def totorch(x):
+    return ag.Variable(torch.Tensor(x))
+
+def train_on_batch(x, y, innerstepsize=0.05):
+    x = totorch(x)
+    y = totorch(y)
+    model.zero_grad()
+    ypred = model(x)
+    loss = (ypred - y).pow(2).mean()
+    loss.backward()
+    for param in model.parameters():
+        param.data -= innerstepsize * param.grad.data
+
+def predict(x):
+    x = totorch(x)
+    return model(x).data.numpy()
+
+# Function to test the model on new tasks with early stopping
+def test_model(gen_task, num_iterations=1000, test_task_name="New Task", patience=10, min_loss_diff=0.01):
+    f_test = gen_task()
+    x_test = np.linspace(-5, 5, 50)[:, None]
+    y_test = f_test(x_test)
+    
+    # List to store test losses
+    test_losses = []
+
+    # Print test metadata
+    print(f"Testing on task: {test_task_name}")
+    print(f"Number of iterations: {num_iterations}")
+    print(f"Patience: {patience}")
+    print(f"Minimum loss difference for early stopping: {min_loss_diff}")
+    print(f"-----------------------------")
+
+    # Initial predictions
+    plt.figure()
+    plt.plot(x_test, y_test, label="True Function", color='g')
+    plt.plot(x_test, predict(x_test), label="Initial Prediction", color='r')
+    
+    best_iteration = 0
+    best_loss = float('inf')
+    best_prediction = None
+    no_improvement_count = 0
+    
+    for i in range(num_iterations):
+        train_on_batch(x_test, y_test)
+        current_prediction = predict(x_test)
+        test_loss = np.square(current_prediction - y_test).mean()
+        test_losses.append(test_loss)
+        print(f"Iteration {i + 1}, Test Loss: {test_loss:.3f}")
+
+        if (i + 1) % (num_iterations // 5) == 0 or i == num_iterations - 1:
+            plt.plot(x_test, current_prediction, label=f"Prediction after {i + 1} iterations")
+
+        if test_loss < best_loss:
+            if best_loss - test_loss < min_loss_diff:
+                print(f"Stopping early at iteration {i + 1} due to minimal loss improvement.")
+                print(f"-----------------------------")
+                break
+            best_loss = test_loss
+            best_iteration = i + 1
+            best_prediction = current_prediction
+            no_improvement_count = 0  # Reset the counter if improvement is found
+        else:
+            no_improvement_count += 1  # Increment the counter if no improvement
+        
+        if no_improvement_count >= patience:
+            print(f"Early stopping at iteration {i + 1} with best iteration {best_iteration}")
+            print(f"-----------------------------")
+            break
+    
+    plt.xlabel('x')
+    plt.ylabel('y')
+    plt.title(f'Model Predictions on {test_task_name}')
+    plt.legend(loc="lower right")
+    plt.gca().yaxis.set_major_formatter(FuncFormatter(lambda y, _: f'{y:.2f}'))
+    plt.savefig(os.path.join(unique_test_dir, f"test_{test_task_name.replace(' ', '_')}.png"))
+    plt.close()
+    
+    # Plot best prediction
+    plt.figure()
+    plt.plot(x_test, y_test, label="True Function", color='g')
+    plt.plot(x_test, best_prediction, label=f"Best Prediction after {best_iteration} iterations", color='b')
+    plt.xlabel('x')
+    plt.ylabel('y')
+    plt.title(f'Best Model Prediction on {test_task_name}')
+    plt.legend(loc="lower right")
+    plt.gca().yaxis.set_major_formatter(FuncFormatter(lambda y, _: f'{y:.2f}'))
+    plt.savefig(os.path.join(unique_test_dir, f"best_prediction_{test_task_name.replace(' ', '_')}.png"))
+    plt.close()
+    
+    return test_losses
+
+# Start measuring testing time
+start_testing_time = time.time()
+
+# Test the model on new tasks with early stopping
+for task_name in tasks.keys():
+    test_model(tasks[task_name], test_task_name=task_name, patience=10, min_loss_diff=0.001)
+
+# Test the model on a completely new task
+new_task_losses = test_model(gen_new_task, test_task_name="New Task Example", patience=10, min_loss_diff=0.001)
+
+# End measuring testing time
+end_testing_time = time.time()
+testing_time = end_testing_time - start_testing_time
+
+# Plot the test loss history with integer x-axis
+plt.figure()
+plt.plot(range(1, len(new_task_losses) + 1), new_task_losses)
+plt.xlabel('Iteration')
+plt.ylabel('Loss')
+plt.title('Test Loss over Iterations on New Environment')
+plt.xticks(range(1, len(new_task_losses) + 1))
+plt.gca().yaxis.set_major_formatter(FuncFormatter(lambda y, _: f'{y:.2f}'))
+plt.savefig(os.path.join(unique_test_dir, "test_loss_history.png"))
+plt.close()
+
+print("Testing Completed!")
+print(f"Results saved in {unique_test_dir} directory.")
+print(f"Total Testing Time: {testing_time:.2f} seconds")
+print(f"-----------------------------")
+
