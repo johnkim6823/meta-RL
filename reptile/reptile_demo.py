@@ -1,4 +1,3 @@
-import os
 import numpy as np
 import torch
 from torch import nn, autograd as ag
@@ -10,7 +9,7 @@ plot = True
 innerstepsize = 0.02 # stepsize in inner SGD
 innerepochs = 1 # number of epochs of each inner SGD
 outerstepsize0 = 0.1 # stepsize of outer optimization, i.e., meta-optimization
-niterations = 10000 # number of outer updates; each iteration we sample one task and update on it
+niterations = 30000 # number of outer updates; each iteration we sample one task and update on it
 
 rng = np.random.RandomState(seed)
 torch.manual_seed(seed)
@@ -55,9 +54,6 @@ def predict(x):
 f_plot = gen_task()
 xtrain_plot = x_all[rng.choice(len(x_all), size=ntrain)]
 
-# Create directory for saving plots
-os.makedirs("reptile_test", exist_ok=True)
-
 # Reptile training loop
 for iteration in range(niterations):
     weights_before = deepcopy(model.state_dict())
@@ -95,12 +91,8 @@ for iteration in range(niterations):
         plt.ylim(-4,4)
         plt.legend(loc="lower right")
         plt.pause(0.01)
-        
-        # Save the plot every 10000 iterations
-        if (iteration+1) % 10000 == 0:
-            plt.savefig(f"reptile_test/plot_iteration_{iteration+1}.png")
-        
         model.load_state_dict(weights_before) # restore from snapshot
         print(f"-----------------------------")
         print(f"iteration               {iteration+1}")
         print(f"loss on plotted curve   {lossval:.3f}") # would be better to average loss over a set of examples, but this is optimized for brevity
+
