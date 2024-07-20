@@ -27,7 +27,7 @@ reset_directory(test_dir)
 
 seed = 0
 plot = True
-innerstepsize = 0.02  # stepsize in inner SGD
+innerstepsize = 0.05  # stepsize in inner SGD
 innerepochs = 1  # number of epochs of each inner SGD
 inneriter = 32  # number of inner SGD iterations
 outerstepsize0 = 0.1  # stepsize of outer optimization, i.e., meta-optimization

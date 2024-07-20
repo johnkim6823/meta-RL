@@ -1,5 +1,5 @@
 import numpy as np
-import gym
+import random
 
 # Ensure reproducibility with a fixed seed
 rng = np.random.RandomState(0)
@@ -41,19 +41,27 @@ def gen_new_task():
     f_randomsine = lambda x: np.sin(x + phase) * ampl
     return f_randomsine
 
-# Dictionary of tasks
-tasks = {
+# Define a function to generate tasks with conditions
+def gen_task(task_conditions):
+    phase = rng.uniform(low=0, high=2*np.pi)
+    ampl = rng.uniform(0.1, 5)
+    f_randomsine = lambda x: np.sin(x + phase) * ampl
+    task_conditions["function"] = f_randomsine
+    return task_conditions
+
+# Dictionary of task generation functions
+task_generators = {
     "COCO": gen_coco_task,
     "Google Speech Commands": gen_speech_commands_task,
     "Human Activity Recognition": gen_human_activity_task,
     "Urban Sound": gen_urban_sound_task,
     "CIFAR": gen_cifar_task,
+    "New Task": gen_new_task
 }
 
-# Task conditions
+# Task conditions (provided)
 task_conditions = {
     "COCO": {
-        "num_episodes": 100,
         "usage_percentage": 20,
         "prob_cloud_selection": 30,
         "poisson_interarrival": 5,
@@ -69,7 +77,6 @@ task_conditions = {
         "vm_utilization_on_mobile": 20
     },
     "Google Speech Commands": {
-        "num_episodes": 100,
         "usage_percentage": 20,
         "prob_cloud_selection": 20,
         "poisson_interarrival": 2,
@@ -85,7 +92,6 @@ task_conditions = {
         "vm_utilization_on_mobile": 10
     },
     "Human Activity Recognition": {
-        "num_episodes": 100,
         "usage_percentage": 10,
         "prob_cloud_selection": 10,
         "poisson_interarrival": 3,
@@ -101,7 +107,6 @@ task_conditions = {
         "vm_utilization_on_mobile": 5
     },
     "Urban Sound": {
-        "num_episodes": 100,
         "usage_percentage": 25,
         "prob_cloud_selection": 25,
         "poisson_interarrival": 4,
@@ -117,7 +122,6 @@ task_conditions = {
         "vm_utilization_on_mobile": 25
     },
     "CIFAR": {
-        "num_episodes": 100,
         "usage_percentage": 25,
         "prob_cloud_selection": 15,
         "poisson_interarrival": 6,
@@ -134,7 +138,21 @@ task_conditions = {
     },
 }
 
-def get_tasks(num_tasks):
-    available_tasks = list(tasks.keys())
-    selected_tasks = np.random.choice(available_tasks, num_tasks, replace=True)
-    return [(gym.make('CartPole-v1'), task_conditions[task]["num_episodes"]) for task in selected_tasks]
+# Generate task distribution
+def generate_task_distribution(task_conditions, num_tasks=100):
+    task_distribution = []
+    for task_name, gen_task_func in task_generators.items():
+        for _ in range(int(num_tasks * task_conditions[task_name]["usage_percentage"] / 100)):
+            task = gen_task(task_conditions[task_name].copy())
+            task_distribution.append(task)
+    random.shuffle(task_distribution)
+    return task_distribution
+
+# Generate a distribution of 100 tasks
+task_distribution = generate_task_distribution(task_conditions, num_tasks=100)
+
+# Print some examples
+for i, task in enumerate(task_distribution[:5]):
+    print(f"Task {i+1}:")
+    print(task)
+    print()
