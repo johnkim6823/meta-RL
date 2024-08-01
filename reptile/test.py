@@ -26,11 +26,11 @@ def gen_task():
 
 # Define model. Reptile paper uses ReLU, but Tanh gives slightly better results
 model = nn.Sequential(
-    nn.Linear(1, 64),
+    nn.Linear(1, 256),
     nn.Tanh(),
-    nn.Linear(64, 64),
+    nn.Linear(256, 256),
     nn.Tanh(),
-    nn.Linear(64, 1),
+    nn.Linear(256, 1),
 )
 
 def totorch(x):
@@ -95,4 +95,3 @@ for iteration in range(niterations):
         print(f"-----------------------------")
         print(f"iteration               {iteration+1}")
         print(f"loss on plotted curve   {lossval:.3f}") # would be better to average loss over a set of examples, but this is optimized for brevity
-

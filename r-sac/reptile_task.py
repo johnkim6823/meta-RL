@@ -11,9 +11,8 @@ from tasks import *
 from datetime import datetime
 
 # Ensure the directories exist and clear them if they already exist
-output_dir = "output_reptile_task"
+output_dir = "output/task"
 training_dir = os.path.join(output_dir, "training")
-test_dir = os.path.join(output_dir, "test")
 
 # Function to clear and recreate directories
 def reset_directory(dir_path):
@@ -22,7 +21,6 @@ def reset_directory(dir_path):
     os.makedirs(dir_path)
 
 reset_directory(training_dir)
-reset_directory(test_dir)
 
 seed = 0
 plot = True
@@ -37,12 +35,11 @@ torch.manual_seed(seed)
 
 # Define task distribution
 x_all = np.linspace(-5, 5, 50)[:, None]  # All of the x points
-x_all = np.repeat(x_all, 3, axis=1)  # Make x_all 3-dimensional
-ntrain = 10  # Size of training minibatches
+ntrain = 10 # Size of training minibatches
 
 # Define model. Reptile paper uses ReLU, but Tanh gives slightly better results
 model = nn.Sequential(
-    nn.Linear(3, 64),  # 입력 차원을 3으로 변경
+    nn.Linear(1, 64),
     nn.Tanh(),
     nn.Linear(64, 64),
     nn.Tanh(),
@@ -67,10 +64,9 @@ def predict(x):
     return model(x).data.numpy()
 
 # Choose a fixed task and minibatch for visualization
-f_plot = tasks["Urban Sound"]()  # Fixed task for consistent visualization
+f_plot = tasks["HEALTH_APP"]()  # Fixed task for consistent visualization
 xtrain_plot = x_all[rng.choice(len(x_all), size=ntrain)]
 xtest_plot = np.linspace(-5, 5, 100)[:, None]
-xtest_plot = np.repeat(xtest_plot, 3, axis=1)  # Make xtest_plot 3-dimensional
 
 # List to store loss values
 loss_history = []
@@ -93,7 +89,7 @@ for iteration in range(niterations):
     if iteration == 0 or (iteration + 1) % 1000 == 0:
         print("-----------------------------")
         print(f"Iteration {iteration + 1}")
-        print("-----------------------------")
+        print(f"Training on task: {task_name}")
         print(f"Task Frequency Distribution (up to iteration {iteration + 1}):")
         for task, freq in task_frequency.items():
             print(f"{task}: {freq} times")
@@ -101,15 +97,13 @@ for iteration in range(niterations):
     weights_before = deepcopy(model.state_dict())
     # Generate task
     f = gen_task()
-    y_all = f(x_all[:, 0:1])  # Use only the first dimension for generating y_all
-    
+    y_all = f(x_all)
     # Do SGD on this task
     inds = rng.permutation(len(x_all))
     for _ in range(innerepochs):
         for start in range(0, len(x_all), ntrain):
             mbinds = inds[start:start+ntrain]
             train_on_batch(x_all[mbinds], y_all[mbinds])
-    
     # Interpolate between current weights and trained weights from this task
     # I.e. (weights_before - weights_after) is the meta-gradient
     weights_after = model.state_dict()
@@ -123,15 +117,15 @@ for iteration in range(niterations):
         plt.cla()
         f = f_plot
         weights_before = deepcopy(model.state_dict()) # save snapshot before evaluation
-        plt.plot(x_all[:, 0], predict(x_all), label="pred after 0", color=(0,0,1))
+        plt.plot(x_all, predict(x_all), label="pred after 0", color=(0,0,1))
         for inneriter_idx in range(inneriter):
-            train_on_batch(xtrain_plot, f(xtrain_plot[:, 0:1]))
+            train_on_batch(xtrain_plot, f(xtrain_plot))
             if (inneriter_idx + 1) % 8 == 0:
                 frac = (inneriter_idx + 1) / inneriter
-                plt.plot(x_all[:, 0], predict(x_all), label="pred after %i"%(inneriter_idx + 1), color=(frac, 0, 1 - frac))
-        plt.plot(x_all[:, 0], f(x_all[:, 0:1]), label="true", color=(0, 1, 0))
-        plt.plot(xtrain_plot[:, 0], f(xtrain_plot[:, 0:1]), "x", label="train", color="k")
-        lossval = np.square(predict(x_all) - f(x_all[:, 0:1])).mean()
+                plt.plot(x_all, predict(x_all), label="pred after %i"%(inneriter_idx + 1), color=(frac, 0, 1 - frac))
+        plt.plot(x_all, f(x_all), label="true", color=(0, 1, 0))
+        plt.plot(xtrain_plot, f(xtrain_plot), "x", label="train", color="k")
+        lossval = np.square(predict(x_all) - f(x_all)).mean()
         plt.ylim(-4, 4)
         plt.xlabel('x')
         plt.ylabel('y')
@@ -155,10 +149,6 @@ for iteration in range(niterations):
 end_training_time = time.time()
 training_time = end_training_time - start_training_time
 
-print(f"-----------------------------")
-print(f"Training Time: {training_time:.2f} seconds")
-print(f"-----------------------------")
-
 # Plot the loss history with detailed view
 plt.figure()
 plt.plot(loss_history)
@@ -181,5 +171,4 @@ plt.gca().yaxis.set_major_formatter(FuncFormatter(lambda y, _: f'{y:.4f}'))
 plt.savefig(os.path.join(training_dir, "loss_history_zoomed.png"))
 plt.close()
 
-# Save the trained model
-torch.save(model.state_dict(), "reptile_model.pth")
+print(f"Training completed in {training_time:.2f} seconds")
