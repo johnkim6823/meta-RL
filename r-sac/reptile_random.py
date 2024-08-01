@@ -140,13 +140,6 @@ for iteration in range(niterations):
 end_training_time = time.time()
 training_time = end_training_time - start_training_time
 
-# Print the final weights
-final_weights = {name: param.data for name, param in model.named_parameters()}
-for name, weight in final_weights.items():
-    print(f"{name}: {weight}")
-
-print(f"Training completed in {training_time:.2f} seconds")
-
 # Plot the loss history with detailed view
 plt.figure()
 plt.plot(loss_history)
@@ -168,6 +161,3 @@ plt.ylim(0, max(loss_history) * 0.1)  # Zoom into the first 10% of the maximum l
 plt.gca().yaxis.set_major_formatter(FuncFormatter(lambda y, _: f'{y:.4f}'))
 plt.savefig(os.path.join(training_dir, "loss_history_zoomed.png"))
 plt.close()
-
-
-print(f"Training completed in {training_time:.2f} seconds")
