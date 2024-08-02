@@ -11,7 +11,7 @@ from tasks import *
 from datetime import datetime
 
 # Ensure the directories exist and clear them if they already exist
-output_dir = "output_random"
+output_dir = "output/random"
 training_dir = os.path.join(output_dir, "training")
 
 # Function to clear and recreate directories
@@ -23,12 +23,12 @@ def reset_directory(dir_path):
 reset_directory(training_dir)
 
 seed = 0
-plot = True
+plot = False
 innerstepsize = 0.02  # stepsize in inner SGD
 innerepochs = 1  # number of epochs of each inner SGD
 inneriter = 32  # number of inner SGD iterations
 outerstepsize0 = 0.1  # stepsize of outer optimization, i.e., meta-optimization
-niterations = 10000  # number of outer updates; each iteration we sample one task and update on it
+niterations = 20000  # number of outer updates; each iteration we sample one task and update on it
 
 rng = np.random.RandomState(seed)
 torch.manual_seed(seed)
@@ -77,8 +77,8 @@ xtrain_plot = x_all[rng.choice(len(x_all), size=ntrain)]
 # List to store loss values
 loss_history = []
 
-# Dictionary to store task frequency
-task_frequency = {task_name: 0 for task_name in tasks.keys()}
+# Initialize previous loss
+previous_loss = None
 
 # Start measuring training time
 start_training_time = time.time()
@@ -96,7 +96,6 @@ for iteration in range(niterations):
             mbinds = inds[start:start+ntrain]
             train_on_batch(x_all[mbinds], y_all[mbinds])
     # Interpolate between current weights and trained weights from this task
-    # I.e. (weights_before - weights_after) is the meta-gradient
     weights_after = model.state_dict()
     outerstepsize = outerstepsize0 * (1 - iteration / niterations) # linear schedule
     model.load_state_dict({name : 
@@ -104,60 +103,36 @@ for iteration in range(niterations):
         for name in weights_before})
 
     # Periodically plot the results on a particular task and minibatch
-    if plot and iteration == 0 or (iteration + 1) % 1000 == 0:
-        plt.cla()
+    if plot and (iteration == 0 or (iteration + 1) % 1000 == 0):
         f = f_plot
         weights_before = deepcopy(model.state_dict()) # save snapshot before evaluation
-        plt.plot(x_all, predict(x_all), label="pred after 0", color=(0,0,1))
         for inneriter_idx in range(inneriter):
             train_on_batch(xtrain_plot, f(xtrain_plot))
-            if (inneriter_idx + 1) % 8 == 0:
-                frac = (inneriter_idx + 1) / inneriter
-                plt.plot(x_all, predict(x_all), label="pred after %i"%(inneriter_idx + 1), color=(frac, 0, 1 - frac))
-        plt.plot(x_all, f(x_all), label="true", color=(0, 1, 0))
-        plt.plot(xtrain_plot, f(xtrain_plot), "x", label="train", color="k")
         lossval = np.square(predict(x_all) - f(x_all)).mean()
-        plt.ylim(-4, 4)
-        plt.xlabel('x')
-        plt.ylabel('y')
-        plt.title('Model Predictions during Training')
-        plt.legend(loc="lower right")
-        plt.gca().yaxis.set_major_formatter(FuncFormatter(lambda y, _: f'{y:.2f}'))
-        
-        # Save the plot every 1000 iterations
-        if (iteration + 1) % 1000 == 0:
-            plt.savefig(os.path.join(training_dir, f"plot_iteration_{iteration + 1}.png"))
-        
+
         model.load_state_dict(weights_before) # restore from snapshot
         print(f"-----------------------------")
         print(f"iteration               {iteration + 1}")
         print(f"loss on plotted curve   {lossval:.3f}") # would be better to average loss over a set of examples, but this is optimized for brevity
 
-    # Save loss value
+    else:
+        f = f_plot
+        weights_before = deepcopy(model.state_dict()) # save snapshot before evaluation
+        for inneriter_idx in range(inneriter):
+            train_on_batch(xtrain_plot, f(xtrain_plot))
+        lossval = np.square(predict(x_all) - f(x_all)).mean()
+
+        model.load_state_dict(weights_before) # restore from snapshot
+        print(f"-----------------------------")
+        print(f"iteration               {iteration + 1}")
+        print(f"loss on plotted curve   {lossval:.3f}") # would be better to average loss over a set of examples, but this is optimized for brevity
+
+    # Save loss value and update previous_loss
     loss_history.append(lossval)
+    previous_loss = lossval
 
 # End measuring training time
 end_training_time = time.time()
 training_time = end_training_time - start_training_time
 
-# Plot the loss history with detailed view
-plt.figure()
-plt.plot(loss_history)
-plt.xlabel('Iteration')
-plt.ylabel('Loss')
-plt.title('Loss over Iterations (Full View)')
-plt.ylim(bottom=0)  # Set y-axis to start at 0 for better readability
-plt.gca().yaxis.set_major_formatter(FuncFormatter(lambda y, _: f'{y:.2f}'))
-plt.savefig(os.path.join(training_dir, "loss_history_full.png"))
-plt.close()
-
-# Plot the loss history with zoomed-in view
-plt.figure()
-plt.plot(loss_history)
-plt.xlabel('Iteration')
-plt.ylabel('Loss')
-plt.title('Loss over Iterations (Zoomed View)')
-plt.ylim(0, max(loss_history) * 0.1)  # Zoom into the first 10% of the maximum loss
-plt.gca().yaxis.set_major_formatter(FuncFormatter(lambda y, _: f'{y:.4f}'))
-plt.savefig(os.path.join(training_dir, "loss_history_zoomed.png"))
-plt.close()
+print(f"Total training time: {training_time:.2f} seconds")

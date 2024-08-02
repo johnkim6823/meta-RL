@@ -28,7 +28,7 @@ innerstepsize = 0.02  # stepsize in inner SGD
 innerepochs = 1  # number of epochs of each inner SGD
 inneriter = 32  # number of inner SGD iterations
 outerstepsize0 = 0.1  # stepsize of outer optimization, i.e., meta-optimization
-niterations = 10000  # number of outer updates; each iteration we sample one task and update on it
+niterations = 20000  # number of outer updates; each iteration we sample one task and update on it
 
 rng = np.random.RandomState(seed)
 torch.manual_seed(seed)
@@ -114,29 +114,12 @@ for iteration in range(niterations):
 
     # Periodically plot the results on a particular task and minibatch
     if plot and iteration == 0 or (iteration + 1) % 1000 == 0:
-        plt.cla()
         f = f_plot
         weights_before = deepcopy(model.state_dict()) # save snapshot before evaluation
-        plt.plot(x_all, predict(x_all), label="pred after 0", color=(0,0,1))
         for inneriter_idx in range(inneriter):
             train_on_batch(xtrain_plot, f(xtrain_plot))
-            if (inneriter_idx + 1) % 8 == 0:
-                frac = (inneriter_idx + 1) / inneriter
-                plt.plot(x_all, predict(x_all), label="pred after %i"%(inneriter_idx + 1), color=(frac, 0, 1 - frac))
-        plt.plot(x_all, f(x_all), label="true", color=(0, 1, 0))
-        plt.plot(xtrain_plot, f(xtrain_plot), "x", label="train", color="k")
         lossval = np.square(predict(x_all) - f(x_all)).mean()
-        plt.ylim(-4, 4)
-        plt.xlabel('x')
-        plt.ylabel('y')
-        plt.title('Model Predictions during Training')
-        plt.legend(loc="lower right")
-        plt.gca().yaxis.set_major_formatter(FuncFormatter(lambda y, _: f'{y:.2f}'))
-        
-        # Save the plot every 1000 iterations
-        if (iteration + 1) % 1000 == 0:
-            plt.savefig(os.path.join(training_dir, f"plot_iteration_{iteration + 1}.png"))
-        
+
         model.load_state_dict(weights_before) # restore from snapshot
         print(f"-----------------------------")
         print(f"iteration               {iteration + 1}")
@@ -148,27 +131,3 @@ for iteration in range(niterations):
 # End measuring training time
 end_training_time = time.time()
 training_time = end_training_time - start_training_time
-
-# Plot the loss history with detailed view
-plt.figure()
-plt.plot(loss_history)
-plt.xlabel('Iteration')
-plt.ylabel('Loss')
-plt.title('Loss over Iterations (Full View)')
-plt.ylim(bottom=0)  # Set y-axis to start at 0 for better readability
-plt.gca().yaxis.set_major_formatter(FuncFormatter(lambda y, _: f'{y:.2f}'))
-plt.savefig(os.path.join(training_dir, "loss_history_full.png"))
-plt.close()
-
-# Plot the loss history with zoomed-in view
-plt.figure()
-plt.plot(loss_history)
-plt.xlabel('Iteration')
-plt.ylabel('Loss')
-plt.title('Loss over Iterations (Zoomed View)')
-plt.ylim(0, max(loss_history) * 0.1)  # Zoom into the first 10% of the maximum loss
-plt.gca().yaxis.set_major_formatter(FuncFormatter(lambda y, _: f'{y:.4f}'))
-plt.savefig(os.path.join(training_dir, "loss_history_zoomed.png"))
-plt.close()
-
-print(f"Training completed in {training_time:.2f} seconds")
