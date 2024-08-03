@@ -190,7 +190,7 @@ def test_agent(env, agent, episodes=10):
             episode_reward += reward
             state = next_state
 
-            env.render()  # 환경 렌더링 (시각화)
+            # env.render() 제거
 
         print(f"Episode: {episode + 1}, Reward: {episode_reward}")
     env.close()
@@ -199,7 +199,7 @@ def test_agent(env, agent, episodes=10):
 if __name__ == "__main__":
     # 환경 생성
     print("Initializing environment...")
-    env = gym.make('Pendulum-v1')  # render_mode 제거
+    env = gym.make('Pendulum-v1')  # render_mode 설정 제거
     state_dim = env.observation_space.shape[0]
     action_dim = env.action_space.shape[0]
     max_action = float(env.action_space.high[0])
@@ -251,15 +251,17 @@ if __name__ == "__main__":
             # 학습 단계
             if total_timesteps >= start_timesteps:
                 agent.train(replay_buffer, batch_size)
-                print(f"Training at timestep {total_timesteps}")
 
-            # 환경 렌더링
-            env.render()
+            # 타임스텝 출력 (1000 단위)
+            if total_timesteps % 1000 == 0:
+                print(f"Timestep: {total_timesteps}")
 
             # 평가 및 테스트
             if total_timesteps % eval_freq == 0:
                 print(f"Evaluating at timestep {total_timesteps}...")
-                test_agent(env, agent, episodes=10)
+                for episode in range(10):
+                    print(f"Evaluation episode {episode + 1}/10...")
+                    test_agent(env, agent, episodes=1)
 
         print(f"Episode finished with reward {episode_reward}")
 
