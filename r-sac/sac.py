@@ -1,26 +1,64 @@
 import torch
 import torch.nn as nn
 import torch.optim as optim
-import random
 import numpy as np
+from torch.distributions import Normal
+import gym
+import random
 
-from reptile_random import model as random_model  # Reptile 학습 모델 가져오기
-from reptile_task import model as task_model
+# Replay Buffer
+class ReplayBuffer:
+    def __init__(self, max_size):
+        self.max_size = max_size
+        self.ptr = 0
+        self.size = 0
+        self.buffer = []
 
-# Define the Actor and Critic networks
+    def add(self, state, action, reward, next_state, done):
+        if self.size < self.max_size:
+            self.buffer.append((state, action, reward, next_state, done))
+            self.size += 1
+        else:
+            self.buffer[self.ptr] = (state, action, reward, next_state, done)
+        self.ptr = (self.ptr + 1) % self.max_size
+
+    def sample(self, batch_size):
+        batch = random.sample(self.buffer, batch_size)
+        state, action, reward, next_state, done = map(np.stack, zip(*batch))
+        return (
+            torch.FloatTensor(state).cuda(),
+            torch.FloatTensor(action).cuda(),
+            torch.FloatTensor(reward).cuda(),
+            torch.FloatTensor(next_state).cuda(),
+            torch.FloatTensor(1 - done).cuda()
+        )
+
+# Actor Network
 class Actor(nn.Module):
     def __init__(self, state_dim, action_dim, max_action):
         super(Actor, self).__init__()
         self.l1 = nn.Linear(state_dim, 256)
         self.l2 = nn.Linear(256, 256)
-        self.l3 = nn.Linear(256, action_dim)
+        self.mean = nn.Linear(256, action_dim)
+        self.log_std = nn.Linear(256, action_dim)
         self.max_action = max_action
 
     def forward(self, state):
         a = torch.relu(self.l1(state))
         a = torch.relu(self.l2(a))
-        return self.max_action * torch.tanh(self.l3(a))
+        mean = self.mean(a)
+        log_std = self.log_std(a)
+        log_std = torch.clamp(log_std, min=-20, max=2)
+        std = log_std.exp()
+        normal = Normal(mean, std)
+        x_t = normal.rsample()  # for reparameterization trick (mean + std * N(0,1))
+        action = torch.tanh(x_t) * self.max_action
+        log_prob = normal.log_prob(x_t)
+        log_prob -= torch.log(self.max_action * (1 - action.pow(2)) + 1e-6)
+        log_prob = log_prob.sum(1, keepdim=True)
+        return action, log_prob
 
+# Critic Network (Q1, Q2)
 class Critic(nn.Module):
     def __init__(self, state_dim, action_dim):
         super(Critic, self).__init__()
@@ -28,6 +66,7 @@ class Critic(nn.Module):
         self.l1 = nn.Linear(state_dim + action_dim, 256)
         self.l2 = nn.Linear(256, 256)
         self.l3 = nn.Linear(256, 1)
+
         # Q2 architecture
         self.l4 = nn.Linear(state_dim + action_dim, 256)
         self.l5 = nn.Linear(256, 256)
@@ -35,6 +74,7 @@ class Critic(nn.Module):
 
     def forward(self, state, action):
         sa = torch.cat([state, action], 1)
+
         q1 = torch.relu(self.l1(sa))
         q1 = torch.relu(self.l2(q1))
         q1 = self.l3(q1)
@@ -44,195 +84,175 @@ class Critic(nn.Module):
         q2 = self.l6(q2)
         return q1, q2
 
-# Define the SAC class
-class SAC:
-    def __init__(self, state_dim, action_dim, max_action, lr=3e-4, gamma=0.99, tau=0.005, alpha=0.2):
-        self.actor = Actor(state_dim, action_dim, max_action).to(device)
-        self.actor_optimizer = optim.Adam(self.actor.parameters(), lr=lr)
-
-        self.critic = Critic(state_dim, action_dim).to(device)
-        self.critic_optimizer = optim.Adam(self.critic.parameters(), lr=lr)
-
-        self.critic_target = Critic(state_dim, action_dim).to(device)
+# SAC Agent
+class SACAgent:
+    def __init__(self, state_dim, action_dim, max_action):
+        self.actor = Actor(state_dim, action_dim, max_action).cuda()
+        self.critic = Critic(state_dim, action_dim).cuda()
+        self.critic_target = Critic(state_dim, action_dim).cuda()
         self.critic_target.load_state_dict(self.critic.state_dict())
-
-        self.max_action = max_action
-        self.gamma = gamma
-        self.tau = tau
-        self.alpha = alpha
-
-        # Automatic entropy tuning
-        self.target_entropy = -action_dim
-        self.log_alpha = torch.zeros(1, requires_grad=True, device=device)
-        self.alpha_optim = optim.Adam([self.log_alpha], lr=lr)
-
-        # Replay buffer
-        self.replay_buffer = []
-        self.buffer_size = int(1e6)
-        self.batch_size = 256
+        self.actor_optimizer = optim.Adam(self.actor.parameters(), lr=3e-4)
+        self.critic_optimizer = optim.Adam(self.critic.parameters(), lr=3e-4)
+        self.target_entropy = -np.prod((action_dim,)).item()
+        self.log_alpha = torch.zeros(1, requires_grad=True, device='cuda')
+        self.alpha_optimizer = optim.Adam([self.log_alpha], lr=3e-4)
+        self.alpha = self.log_alpha.exp()
 
     def select_action(self, state):
-        state = torch.FloatTensor(state).to(device).unsqueeze(0)
-        return self.actor(state).cpu().data.numpy().flatten()
+        if isinstance(state, tuple):
+            processed_state = []
+            for s in state:
+                if np.isscalar(s):
+                    processed_state.append(np.array([s]))  # 0차원 스칼라를 1차원 배열로 변환
+                elif isinstance(s, np.ndarray):
+                    if s.ndim == 0:
+                        processed_state.append(s.reshape(1))  # 0차원 배열을 1차원 배열로 변환
+                    else:
+                        processed_state.append(s)
+                elif isinstance(s, dict):
+                    # 딕셔너리의 모든 값을 추출하여 벡터로 변환
+                    dict_values = [np.array(v).reshape(-1) for v in s.values() if len(np.array(v).shape) > 0]
+                    if len(dict_values) > 0:
+                        dict_values = np.concatenate(dict_values)
+                        processed_state.append(dict_values)
+                else:
+                    # 상태의 요소가 배열, 스칼라, 딕셔너리가 아닌 경우 예외 발생
+                    raise ValueError(f"State contains elements of unsupported type: {type(s)}")
+            if len(processed_state) > 0:
+                state = np.concatenate(processed_state, axis=-1)
+            else:
+                raise ValueError("Processed state is empty. Check the input state format.")
+        else:
+            state = np.array(state)
+        
+        state = torch.FloatTensor(state.reshape(1, -1)).cuda()
+        action, _ = self.actor(state)
+        return action.cpu().data.numpy().flatten()
 
-    def train(self):
-        if len(self.replay_buffer) < self.batch_size:
-            return
+    def train(self, replay_buffer, batch_size=256, gamma=0.99, tau=0.005):
+        # Sample replay buffer
+        state, action, next_state, reward, not_done = replay_buffer.sample(batch_size)
 
-        # Sample a batch of transitions from replay buffer
-        batch = random.sample(self.replay_buffer, self.batch_size)
-        state, action, reward, next_state, done = map(np.stack, zip(*batch))
-
-        state = torch.FloatTensor(state).to(device)
-        action = torch.FloatTensor(action).to(device)
-        reward = torch.FloatTensor(reward).to(device)
-        next_state = torch.FloatTensor(next_state).to(device)
-        done = torch.FloatTensor(done).to(device)
-
-        # Critic update
+        # Critic training
         with torch.no_grad():
-            next_action = self.actor(next_state)
-            next_q1, next_q2 = self.critic_target(next_state, next_action)
-            next_q = torch.min(next_q1, next_q2) - self.alpha * next_action
-            target_q = reward + (1 - done) * self.gamma * next_q
+            next_action, next_log_prob = self.actor(next_state)
+            target_q1, target_q2 = self.critic_target(next_state, next_action)
+            target_q = torch.min(target_q1, target_q2) - self.alpha * next_log_prob
+            target_q = reward + not_done * gamma * target_q
 
         current_q1, current_q2 = self.critic(state, action)
-        critic_loss = (current_q1 - target_q).pow(2).mean() + (current_q2 - target_q).pow(2).mean()
+        critic_loss = nn.functional.mse_loss(current_q1, target_q) + nn.functional.mse_loss(current_q2, target_q)
 
         self.critic_optimizer.zero_grad()
         critic_loss.backward()
         self.critic_optimizer.step()
 
-        # Actor update
-        pi = self.actor(state)
+        # Actor training
+        pi, log_pi = self.actor(state)
         q1_pi, q2_pi = self.critic(state, pi)
-        actor_loss = (self.alpha * pi - torch.min(q1_pi, q2_pi)).mean()
+        q_pi = torch.min(q1_pi, q2_pi)
+
+        actor_loss = (self.alpha * log_pi - q_pi).mean()
 
         self.actor_optimizer.zero_grad()
         actor_loss.backward()
         self.actor_optimizer.step()
 
-        # Temperature update
-        alpha_loss = -(self.log_alpha * (pi + self.target_entropy).detach()).mean()
-        self.alpha_optim.zero_grad()
+        # Alpha update
+        alpha_loss = -(self.log_alpha * (log_pi + self.target_entropy).detach()).mean()
+        self.alpha_optimizer.zero_grad()
         alpha_loss.backward()
-        self.alpha_optim.step()
+        self.alpha_optimizer.step()
+
         self.alpha = self.log_alpha.exp()
 
-        # Soft update of target network
+        # Update target networks
         for param, target_param in zip(self.critic.parameters(), self.critic_target.parameters()):
-            target_param.data.copy_(self.tau * param.data + (1 - self.tau) * target_param.data)
+            target_param.data.copy_(tau * param.data + (1 - tau) * target_param.data)
 
-    def save(self, filename):
-        torch.save(self.actor.state_dict(), filename + "_actor")
-        torch.save(self.critic.state_dict(), filename + "_critic")
-        torch.save(self.critic_target.state_dict(), filename + "_critic_target")
-        torch.save(self.actor_optimizer.state_dict(), filename + "_actor_optimizer")
-        torch.save(self.critic_optimizer.state_dict(), filename + "_critic_optimizer")
-        torch.save(self.log_alpha, filename + "_log_alpha")
-        torch.save(self.alpha_optim.state_dict(), filename + "_alpha_optim")
+# Test Agent
+def test_agent(env, agent, episodes=10):
+    for episode in range(episodes):
+        state = env.reset()
+        done = False
+        episode_reward = 0
+        
+        while not done:
+            action = agent.select_action(state)  # 학습된 정책을 사용하여 액션 선택
+            result = env.step(action)
+            if len(result) == 4:
+                next_state, reward, done, _ = result
+            elif len(result) > 4:
+                next_state, reward, done = result[0:3]
+            else:
+                raise ValueError("Unexpected number of values returned from env.step(action)")
 
-    def load(self, filename):
-        self.actor.load_state_dict(torch.load(filename + "_actor"))
-        self.critic.load_state_dict(torch.load(filename + "_critic"))
-        self.critic_target.load_state_dict(torch.load(filename + "_critic_target"))
-        self.actor_optimizer.load_state_dict(torch.load(filename + "_actor_optimizer"))
-        self.critic_optimizer.load_state_dict(torch.load(filename + "_critic_optimizer"))
-        self.log_alpha = torch.load(filename + "_log_alpha")
-        self.alpha_optim.load_state_dict(torch.load(filename + "_alpha_optim"))
+            episode_reward += reward
+            state = next_state
 
-# Mock environment
-class MockEnv:
-    def __init__(self, state_dim, action_dim):
-        self.state_dim = state_dim
-        self.action_dim = action_dim
-        self.state = np.zeros(state_dim)
-        self.max_action = 1.0
+            env.render()  # 환경 렌더링 (시각화)
 
-    def reset(self):
-        self.state = np.zeros(self.state_dim)
-        return self.state
+        print(f"Episode: {episode + 1}, Reward: {episode_reward}")
+    env.close()
 
-    def step(self, action):
-        # Random next state and reward for simplicity
-        next_state = np.random.randn(self.state_dim)
-        reward = np.random.rand()  # Random reward
-        done = np.random.rand() > 0.95  # Randomly end episode
-        return next_state, reward, done, {}
+# Main function
+if __name__ == "__main__":
+    # 환경 생성
+    env = gym.make('Pendulum-v1')  # 원하는 환경으로 변경 가능
+    state_dim = env.observation_space.shape[0]
+    action_dim = env.action_space.shape[0]
+    max_action = float(env.action_space.high[0])
 
-# Initialize mock environment
-env = MockEnv(state_dim=1, action_dim=1)
+    # SAC 에이전트 생성
+    agent = SACAgent(state_dim, action_dim, max_action)
+    replay_buffer = ReplayBuffer(max_size=1000000)
 
-# Get state and action dimensions from the environment
-state_dim = env.state_dim
-action_dim = env.action_dim
-max_action = env.max_action
+    # 학습 및 테스트
+    total_timesteps = 0
+    max_timesteps = 1000000
+    batch_size = 256
+    start_timesteps = 10000
+    eval_freq = 5000
 
-# Assuming device is defined as either 'cuda' or 'cpu'
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-print("Device: ", device)
-
-# Initialize SAC agent with random model weights
-sac_agent_random = SAC(state_dim, action_dim, max_action)
-sac_agent_random.actor.l1.weight.data = random_model[0].weight.data.clone()
-sac_agent_random.actor.l1.bias.data = random_model[0].bias.data.clone()
-with torch.no_grad():
-    sac_agent_random.actor.l2.weight.data[:64, :64] = random_model[2].weight.data.clone()
-    sac_agent_random.actor.l2.bias.data = random_model[2].bias.data.clone()
-print("SAC with random model weights initialized.")
-
-# Initialize SAC agent with task model weights
-sac_agent_task = SAC(state_dim, action_dim, max_action)
-sac_agent_task.actor.l1.weight.data = task_model[0].weight.data.clone()
-sac_agent_task.actor.l1.bias.data = task_model[0].bias.data.clone()
-with torch.no_grad():
-    sac_agent_task.actor.l2.weight.data[:64, :64] = task_model[2].weight.data.clone()
-    sac_agent_task.actor.l2.bias.data = task_model[2].bias.data.clone()
-print("SAC with task model weights initialized.")
-
-def select_action(self, state):
-    # Ensure the state tensor is on the same device as the model
-    if not isinstance(state, torch.Tensor):
-        state = torch.FloatTensor(state)
-    state = state.to(self.actor.l1.weight.device)
-    return self.actor(state.unsqueeze(0)).cpu().data.numpy().flatten()
-
-# Replace the select_action method in SAC class
-SAC.select_action = select_action
-
-def run_simple_task(sac_agent, env, num_episodes=10):
-    for episode in range(num_episodes):
+    # 학습 시작
+    while total_timesteps < max_timesteps:
         state = env.reset()
         episode_reward = 0
         done = False
 
         while not done:
-            # Select action according to the policy
-            state_tensor = torch.FloatTensor(state).to(device)  # Ensure the state is on the correct device
-            action = sac_agent.select_action(state_tensor)
-            
-            # Execute action in the environment
-            next_state, reward, done, _ = env.step(action)
-            
-            # Store transition in replay buffer
-            sac_agent.replay_buffer.append((state, action, reward, next_state, done))
-            if len(sac_agent.replay_buffer) > sac_agent.buffer_size:
-                sac_agent.replay_buffer.pop(0)
+            if total_timesteps < start_timesteps:
+                action = env.action_space.sample()  # 초기에는 랜덤 액션
+            else:
+                action = agent.select_action(state)
 
-            # Train the agent
-            sac_agent.train()
+            result = env.step(action)  # 모든 반환 값을 받음
+            if len(result) == 4:
+                next_state, reward, done, info = result
+            elif len(result) > 4:
+                next_state, reward, done = result[0:3]
+                info = result[3:]
+            else:
+                raise ValueError("Unexpected number of values returned from env.step(action)")
 
-            # Update state and accumulate reward
+            done_bool = float(done) if episode_reward < 199 else 0
+
+            # 리플레이 버퍼에 추가
+            replay_buffer.add(state, action, reward, next_state, done_bool)
+
             state = next_state
             episode_reward += reward
+            total_timesteps += 1
 
-        print(f"Episode {episode + 1}: Total Reward = {episode_reward}")
+            # 학습 단계
+            if total_timesteps >= start_timesteps:
+                agent.train(replay_buffer, batch_size)
 
+            # 평가 및 테스트
+            if total_timesteps % eval_freq == 0:
+                print(f"Total Timesteps: {total_timesteps}, Episode Reward: {episode_reward}")
+                test_agent(env, agent, episodes=10)
 
-
-# Run simple task for SAC agents initialized with different weights
-print("Running SAC agent with random model weights...")
-run_simple_task(sac_agent_random, env)
-
-print("\nRunning SAC agent with task model weights...")
-run_simple_task(sac_agent_task, env)
+    # 모델 저장
+    torch.save(agent.actor.state_dict(), 'actor.pth')
+    torch.save(agent.critic.state_dict(), 'critic.pth')
