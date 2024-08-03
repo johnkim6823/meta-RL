@@ -198,12 +198,14 @@ def test_agent(env, agent, episodes=10):
 # Main function
 if __name__ == "__main__":
     # 환경 생성
-    env = gym.make('Pendulum-v1')  # 원하는 환경으로 변경 가능
+    print("Initializing environment...")
+    env = gym.make('Pendulum-v1')  # render_mode 제거
     state_dim = env.observation_space.shape[0]
     action_dim = env.action_space.shape[0]
     max_action = float(env.action_space.high[0])
 
     # SAC 에이전트 생성
+    print("Creating SAC Agent...")
     agent = SACAgent(state_dim, action_dim, max_action)
     replay_buffer = ReplayBuffer(max_size=1000000)
 
@@ -215,10 +217,12 @@ if __name__ == "__main__":
     eval_freq = 5000
 
     # 학습 시작
+    print("Starting training...")
     while total_timesteps < max_timesteps:
         state = env.reset()
         episode_reward = 0
         done = False
+        print(f"Starting episode at timestep {total_timesteps}...")
 
         while not done:
             if total_timesteps < start_timesteps:
@@ -247,12 +251,20 @@ if __name__ == "__main__":
             # 학습 단계
             if total_timesteps >= start_timesteps:
                 agent.train(replay_buffer, batch_size)
+                print(f"Training at timestep {total_timesteps}")
+
+            # 환경 렌더링
+            env.render()
 
             # 평가 및 테스트
             if total_timesteps % eval_freq == 0:
-                print(f"Total Timesteps: {total_timesteps}, Episode Reward: {episode_reward}")
+                print(f"Evaluating at timestep {total_timesteps}...")
                 test_agent(env, agent, episodes=10)
 
+        print(f"Episode finished with reward {episode_reward}")
+
     # 모델 저장
+    print("Saving model...")
     torch.save(agent.actor.state_dict(), 'actor.pth')
     torch.save(agent.critic.state_dict(), 'critic.pth')
+    print("Model saved.")
