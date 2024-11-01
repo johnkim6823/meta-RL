@@ -3,6 +3,7 @@ import torch
 import matplotlib.pyplot as plt
 import numpy as np
 import gym
+import logging
 from sklearn.metrics import mean_squared_error
 
 # Import custom implementations of each algorithm
@@ -12,9 +13,16 @@ from ppo import PPOPolicyNetwork, PPOValueNetwork, train_ppo
 from ddpg import DDPGPolicyNetwork, DDPGQNetwork, train_ddpg
 from a2c import A2CPolicyNetwork, A2CValueNetwork, train_a2c
 
+# Setup logging
+log_file_path = "training_comparison.log"
+logging.basicConfig(filename=log_file_path, level=logging.INFO, 
+                    format="%(asctime)s - %(levelname)s - %(message)s")
+
+logging.info("Starting training comparison...")
+
 # GPU 설정
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-print(f"Using device: {device}")
+logging.info(f"Using device: {device}")
 
 # OpenAI Gym 환경 설정 (MountainCarContinuous 예제)
 env = gym.make("MountainCarContinuous-v0")
@@ -22,7 +30,7 @@ state_dim = env.observation_space.shape[0]
 action_dim = env.action_space.shape[0]
 
 # 결과 저장 폴더 생성
-output_dir = "graphs"
+output_dir = "training_results_comparison"
 if not os.path.exists(output_dir):
     os.makedirs(output_dir)
 
@@ -34,41 +42,41 @@ def moving_average(data, window_size=100):
 num_episodes = 500  # Reduced for quicker comparisons
 
 # 1. SAC Training
-print("🚀 Starting SAC Training...")
+logging.info("🚀 Starting SAC Training...")
 sac_policy_net = SACPolicyNetwork(state_dim, action_dim).to(device)
 sac_q_net1 = SACQNetwork(state_dim, action_dim).to(device)
 sac_q_net2 = SACQNetwork(state_dim, action_dim).to(device)
 sac_rewards = train_sac(env, sac_policy_net, sac_q_net1, sac_q_net2, num_episodes=num_episodes, device=device)
-print("✅ SAC Training Completed.")
+logging.info("✅ SAC Training Completed.")
 
 # 2. TD3 Training
-print("🚀 Starting TD3 Training...")
+logging.info("🚀 Starting TD3 Training...")
 td3_policy_net = TD3PolicyNetwork(state_dim, action_dim).to(device)
 td3_q_net1 = TD3QNetwork(state_dim, action_dim).to(device)
 td3_q_net2 = TD3QNetwork(state_dim, action_dim).to(device)
 td3_rewards = train_td3(env, td3_policy_net, td3_q_net1, td3_q_net2, num_episodes=num_episodes, device=device)
-print("✅ TD3 Training Completed.")
+logging.info("✅ TD3 Training Completed.")
 
 # 3. PPO Training
-print("🚀 Starting PPO Training...")
+logging.info("🚀 Starting PPO Training...")
 ppo_policy_net = PPOPolicyNetwork(state_dim, action_dim).to(device)
 ppo_value_net = PPOValueNetwork(state_dim).to(device)
 ppo_rewards = train_ppo(env, ppo_policy_net, ppo_value_net, num_episodes=num_episodes, device=device)
-print("✅ PPO Training Completed.")
+logging.info("✅ PPO Training Completed.")
 
 # 4. DDPG Training
-print("🚀 Starting DDPG Training...")
+logging.info("🚀 Starting DDPG Training...")
 ddpg_policy_net = DDPGPolicyNetwork(state_dim, action_dim).to(device)
 ddpg_q_net = DDPGQNetwork(state_dim, action_dim).to(device)
 ddpg_rewards = train_ddpg(env, ddpg_policy_net, ddpg_q_net, num_episodes=num_episodes, device=device)
-print("✅ DDPG Training Completed.")
+logging.info("✅ DDPG Training Completed.")
 
 # 5. A2C Training
-print("🚀 Starting A2C Training...")
+logging.info("🚀 Starting A2C Training...")
 a2c_policy_net = A2CPolicyNetwork(state_dim, action_dim).to(device)
 a2c_value_net = A2CValueNetwork(state_dim).to(device)
 a2c_rewards = train_a2c(env, a2c_policy_net, a2c_value_net, num_episodes=num_episodes, device=device)
-print("✅ A2C Training Completed.")
+logging.info("✅ A2C Training Completed.")
 
 # Compute MSE Loss for each algorithm compared to SAC
 mse_td3 = mean_squared_error(sac_rewards[:num_episodes], td3_rewards[:num_episodes])
@@ -76,11 +84,11 @@ mse_ppo = mean_squared_error(sac_rewards[:num_episodes], ppo_rewards[:num_episod
 mse_ddpg = mean_squared_error(sac_rewards[:num_episodes], ddpg_rewards[:num_episodes])
 mse_a2c = mean_squared_error(sac_rewards[:num_episodes], a2c_rewards[:num_episodes])
 
-print(f"\n=== MSE Loss compared to SAC ===")
-print(f"TD3 MSE Loss: {mse_td3:.4f}")
-print(f"PPO MSE Loss: {mse_ppo:.4f}")
-print(f"DDPG MSE Loss: {mse_ddpg:.4f}")
-print(f"A2C MSE Loss: {mse_a2c:.4f}")
+logging.info(f"\n=== MSE Loss compared to SAC ===")
+logging.info(f"TD3 MSE Loss: {mse_td3:.4f}")
+logging.info(f"PPO MSE Loss: {mse_ppo:.4f}")
+logging.info(f"DDPG MSE Loss: {mse_ddpg:.4f}")
+logging.info(f"A2C MSE Loss: {mse_a2c:.4f}")
 
 # 학습 결과 시각화 (비교)
 plt.figure(figsize=(12, 6))
@@ -125,4 +133,6 @@ plt.grid(True)
 # Save the comparison plot
 comparison_plot_path = os.path.join(output_dir, "algorithm_comparison.png")
 plt.savefig(comparison_plot_path)
-print(f"📊 Comparison plot saved at: {comparison_plot_path}")
+logging.info(f"📊 Comparison plot saved at: {comparison_plot_path}")
+
+logging.info("Training comparison completed.")
