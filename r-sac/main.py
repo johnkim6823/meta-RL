@@ -22,7 +22,7 @@ state_dim = env.observation_space.shape[0]
 action_dim = env.action_space.shape[0]
 
 # 결과 저장 폴더 생성
-output_dir = "training_results_comparison"
+output_dir = "graphs"
 if not os.path.exists(output_dir):
     os.makedirs(output_dir)
 

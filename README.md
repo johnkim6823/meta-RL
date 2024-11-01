@@ -8,6 +8,6 @@
 1. SAC
 2. TD3
 3. PPO
-4. DDQN
+4. DDPG
 5. A2C
 
