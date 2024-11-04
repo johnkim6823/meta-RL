@@ -4,8 +4,7 @@ venv/
 # Ignore r-sac directory
 r-sac/graphs/
 
-# Ignore all folders named 'graphs'
-**/graphs/
-
 # log files
 *.log
+
+paper/
